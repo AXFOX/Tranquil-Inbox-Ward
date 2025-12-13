@@ -7,7 +7,6 @@ Wants=network.target
 Type=simple
 WorkingDirectory={INSTALL_DIR}
 Environment="PATH={INSTALL_DIR}/{VENV_NAME}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-EnvironmentFile={INSTALL_DIR}/.env
 
 # 使用虚拟环境中的Python
 # 方案A：完全使用journal日志（推荐）
@@ -19,15 +18,15 @@ ExecStart={INSTALL_DIR}/{VENV_NAME}/bin/gunicorn -w 4 -b 0.0.0.0:8501 app:app
 # 重启策略
 Restart=on-failure
 RestartSec=10
-StartLimitInterval=60
-StartLimitBurst=5
+
 
 # 安全设置 - 调整以允许应用访问其安装目录
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full  # 从 strict 改为 full，允许对 /etc、/usr 的只读访问，但允许写入其他目录
-ReadWritePaths={INSTALL_DIR}  # 移除了日志目录，因为不再需要写入文件日志
-ProtectHome=read-only  # 从 true 改为 read-only，允许读取家目录
+# 从 strict 改为 full，允许对 /etc、/usr 的只读访问，但允许写入其他目录
+ProtectSystem=full  
+ReadWritePaths={INSTALL_DIR} 
+ProtectHome=read-only 
 
 # 日志设置 - 完全使用journal
 StandardOutput=journal
