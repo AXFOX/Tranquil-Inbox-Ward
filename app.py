@@ -9,6 +9,10 @@ import time
 import re
 from typing import Tuple, List, Dict, Any
 from collections import Counter
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # 配置日志
 logging.basicConfig(
