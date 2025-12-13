@@ -20,7 +20,7 @@ APP_NAME="tranquil-inbox-ward"
 INSTALL_DIR=$(pwd)
 SERVICE_FILE="/etc/systemd/system/$APP_NAME.service"
 LOG_DIR="/var/log/$APP_NAME"
-VENV_NAME="Tranquil-Inbox-Ward"
+VENV_NAME=".Tranquil-Inbox-Ward"
 
 echo "1. 检查当前目录..."
 echo "   安装目录: $INSTALL_DIR"
