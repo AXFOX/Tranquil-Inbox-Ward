@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger("email_classifier")
 
 # 配置
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', "rwkv-7-g1a:0.4b")
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', "rwkv-7-g1b:1.5b")
 #OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', "http://rwkv.linuxuser.site/api/generate")
 # 使用本地部署的Ollama服务器
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', "http://127.0.0.1:11434/api/generate")
