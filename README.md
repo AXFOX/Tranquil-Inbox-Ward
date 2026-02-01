@@ -8,12 +8,12 @@
 https://github.com/AXFOX/Tranquil-Inbox-Ward
 
 ## 说明（部署与依赖）
-- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：mollysama/rwkv-7-g1b:1.5b
+- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：mollysama/rwkv-7-g1c:1.5b
 ## Ollama（本地模型服务）
 - 请先参考 Ollama 官方文档安装 Ollama 并运行服务。
 - 下载/拉取模型（示例）：
 ```bash
-ollama pull mollysama/rwkv-7-g1b:1.5b
+ollama pull mollysama/rwkv-7-g1c:1.5b
 ```
 - 启动 Ollama 服务（示例）：
 ```bash
@@ -23,7 +23,7 @@ ollama serve
 
 ## 环境变量（可选）
 ```bash
-export OLLAMA_MODEL="mollysama/rwkv-7-g1b:1.5b
+export OLLAMA_MODEL="mollysama/rwkv-7-g1c:1.5b"
 export OLLAMA_API_URL="http://127.0.0.1:11434/api/generate"
 export SERVER_HOST="0.0.0.0"
 export SERVER_PORT="8501"
@@ -43,8 +43,7 @@ gunicorn -w 4 -b 0.0.0.0:8501 app:app
 确保已安装：
 - Python 3.8+
 - Ollama（用于LLM推理）
-- 已拉取模型：`mollysama/rwkv-7-g1b:1.5b
-
+- 已拉取模型：`mollysama/rwkv-7-g1c:1.5b `
 ### 2. 克隆仓库
 ```bash
 git clone https://github.com/AXFOX/Tranquil-Inbox-Ward.git
