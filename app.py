@@ -1,18 +1,19 @@
 from flask import Flask, request, jsonify
 import json
 import urllib.request as urllib_request
-import urllib.error as urllib_error
 import os
 import logging
 import re
-from typing import Tuple, List, Dict, Any
-from collections import Counter
+import math
 from dotenv import load_dotenv
+from typing import Tuple
 
-# 加载环境变量
+# ======================
+# 环境 & 日志
+# ======================
+
 load_dotenv()
 
-# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -20,119 +21,111 @@ logging.basicConfig(
 )
 logger = logging.getLogger("email_classifier")
 
+# ======================
 # 配置
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', "mollysama/rwkv-7-g1c:1.5b")
-OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', "http://127.0.0.1:11434/api/generate")
-SERVER_HOST = os.getenv('SERVER_HOST', "0.0.0.0")
-SERVER_PORT = int(os.getenv('SERVER_PORT', "8501"))
+# ======================
+
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/generate")
+SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8501"))
+
+MAX_TEXT_LEN = 1500  # 防止 prompt 过长
+
+# ======================
+# Flask
+# ======================
 
 app = Flask(__name__)
 
+# ======================
+# 分类器
+# ======================
+
 class EmailClassifier:
-    """基于规则和LLM的混合邮件分类器"""
-    
-    # 关键词和模式库
-    SCAM_KEYWORDS = [
-        '奖金', '中奖', '红包', '免费', '领取', '点击', '链接', '验证码', '密码', '账户',
-        '幸运', '奖品', '兑换', '现金', '汇款', '转账', '付款', '投资', '收益', '理财',
-        'urgent', 'prize', 'winner', 'free', 'click', 'link', 'password', 'account',
-        'verify', 'payment', 'transfer', 'investment'
-    ]
-    
-    AD_KEYWORDS = [
-        '促销', '优惠', '打折', '特价', '限时', '购买', '销售', '推广', '广告', '商城',
-        '新品', '上市', '预订', '折扣', '省钱', '省钱', '省钱', 'vip', '会员',
-        'sale', 'discount', 'promotion', 'buy', 'shop', 'offer', 'deal', 'limited'
-    ]
-    
-    NORMAL_KEYWORDS = [
-        '会议', '工作', '报告', '项目', '安排', '计划', '通知', '提醒', '同事', '领导',
-        '文档', '文件', '附件', '讨论', '问题', '解决', '进展', '更新', '反馈',
-        'meeting', 'work', 'report', 'project', 'schedule', 'team', 'update', 'feedback'
-    ]
-    
-    # IP/端口测试模式
-    TEST_PATTERNS = [
-        r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',  # IP地址
-        r'port\s+\d+',  # 端口
-        r'test\s+mail',  # 测试邮件
-        r'smtp', 'pop3', 'imap'  # 邮件协议
-    ]
+    """
+    零训练邮件分类器：
+    - LLM logits 作为主判别
+    - 规则只做轻微 bias
+    """
 
-    def __init__(self):
-        self.rule_weights = {
-            'keyword_match': 0.4,
-            'pattern_match': 0.3,
-            'length_analysis': 0.1,
-            'llm_analysis': 0.2
-        }
+    PROMPT_TEMPLATE = PROMPT_TEMPLATE = """你是一个邮件分类系统。
 
-    def keyword_analysis(self, text: str) -> Tuple[float, float, float]:
-        """基于关键词的初步分析"""
-        text_lower = text.lower()
-        
-        scam_score = sum(1 for word in self.SCAM_KEYWORDS if word in text_lower)
-        ad_score = sum(1 for word in self.AD_KEYWORDS if word in text_lower)
-        normal_score = sum(1 for word in self.NORMAL_KEYWORDS if word in text_lower)
-        
-        total = scam_score + ad_score + normal_score
-        if total == 0:
-            return (0.33, 0.33, 0.34)
-        
-        return (
-            normal_score / total,
-            ad_score / total,
-            scam_score / total
-        )
+请判断下面的邮件属于哪一类：
+A. 正常邮件
+B. 广告邮件
+C. 诈骗邮件
 
-    def pattern_analysis(self, text: str) -> Tuple[float, float, float]:
-        """基于正则模式的测试邮件检测"""
-        text_lower = text.lower()
-        
-        # 检测测试邮件特征
-        test_score = 0
-        for pattern in self.TEST_PATTERNS:
-            if re.search(pattern, text_lower, re.IGNORECASE):
-                test_score += 1
-        
-        # 如果包含测试特征，高度倾向于广告邮件
-        if test_score > 0:
-            return (0.05, 0.9, 0.05)
-        
-        return (0.33, 0.33, 0.34)
+示例：
+邮件内容：会议时间调整为周三下午三点，请查收附件。
+答案：A
 
-    def length_analysis(self, text: str) -> Tuple[float, float, float]:
-        """基于文本长度的分析"""
-        words = text.split()
-        word_count = len(words)
-        
-        # 超短文本可能是测试或垃圾邮件
-        if word_count <= 3:
-            return (0.2, 0.5, 0.3)
-        # 中等长度更可能是正常邮件
-        elif 4 <= word_count <= 50:
-            return (0.6, 0.25, 0.15)
-        # 超长文本可能是广告或正式文档
-        else:
-            return (0.4, 0.4, 0.2)
+邮件内容：项目进展已更新到文档，请大家查看。
+答案：A
 
-    def call_llm_simple_classification(self, text: str) -> Tuple[float, float, float]:
-        """使用LLM进行简单的三选一分类"""
-        prompt = f"""请分析以下邮件内容，判断它最可能属于哪一类：
-1. 正常邮件 - 日常工作交流、商务沟通、博客评论回复通知等
-2. 广告邮件 - 商业推广、促销信息等
-3. 诈骗邮件 - 欺诈、钓鱼、骚扰等恶意邮件
-请只输出一个符合上述邮件内容的数字：1（正常）、2（广告）或3（诈骗），不要输出其他任何内容。
-邮件内容："{text}"
+邮件内容：双十一限时优惠，点击链接立刻领取优惠券。
+答案：B
 
+邮件内容：test smtp 198.23.254.212--
+答案：B
+
+邮件内容：smtp.linuxuser.site:25:0:127.0.0.1:1080:socks5:25
+答案：B
+
+邮件内容：gsudmswgebl iokijcsmg ykvhiy wocmydsmfa hsovovdq
+答案：B
+
+邮件内容：Have you received your funds valued $4,150,567.00 that was awarded to you by the NCIC.
+答案：C
+
+邮件内容：Your account has been compromised, please click the link to verify your information.
+答案：C
+
+只输出一个大写字母，不要输出任何解释。
+
+邮件内容：
+{email}
 """
+
+    SCAM_BIAS_PATTERN = re.compile(
+        r"(点击|链接|验证码|转账|汇款|中奖|账户异常|verify|payment|transfer)",
+        re.IGNORECASE
+    )
+
+    NORMAL_BIAS_PATTERN = re.compile(
+        r"(smtp|imap|pop3|测试邮件|test mail|系统通知)",
+        re.IGNORECASE
+    )
+
+    def _truncate(self, text: str) -> str:
+        text = text.strip()
+        if len(text) > MAX_TEXT_LEN:
+            return text[:MAX_TEXT_LEN]
+        return text
+
+    def _softmax(self, scores):
+        max_v = max(scores)
+        exps = [math.exp(s - max_v) for s in scores]
+        total = sum(exps)
+        return [v / total for v in exps]
+
+    def call_llm_logits(self, text: str) -> Tuple[float, float, float]:
+        """
+        使用 Ollama 的 logprobs，直接取 A/B/C 的 logits
+        """
+        prompt = self.PROMPT_TEMPLATE.format(
+            email=self._truncate(text)
+        )
 
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": 0.1
+                "temperature": 0,
+                "top_p": 1,
+                "num_predict": 1,
+                "logprobs": 5
             }
         }
 
@@ -142,181 +135,146 @@ class EmailClassifier:
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
-            with urllib_request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                response_text = result.get("response", "").strip()
-                print(f"LLM响应: {response_text}")
-                # 解析响应
-                if "1" in response_text:
-                    return (0.8, 0.1, 0.1)
-                elif "2" in response_text:
-                    return (0.1, 0.8, 0.1)
-                elif "3" in response_text:
-                    return (0.1, 0.1, 0.8)
-                else:
-                    logger.warning(f"LLM返回无法解析的响应: {response_text}")
-                    return (0.33, 0.33, 0.34)
-                    
+
+            with urllib_request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+
+            logprobs = result.get("logprobs", {})
+            tokens = logprobs.get("tokens", [])
+            token_logprobs = logprobs.get("token_logprobs", [])
+
+            scores = {"A": -20.0, "B": -20.0, "C": -20.0}
+
+            for tok, lp in zip(tokens, token_logprobs):
+                if tok in scores:
+                    scores[tok] = lp
+
+            probs = self._softmax([
+                scores["A"],  # normal
+                scores["B"],  # ad
+                scores["C"]   # scam
+            ])
+
+            return probs[0], probs[1], probs[2]
+
         except Exception as e:
-            logger.error(f"LLM调用失败: {str(e)}")
-            return (0.33, 0.33, 0.34)
+            logger.error(f"LLM logits 调用失败: {e}")
+            return 0.33, 0.33, 0.34
+
+    def apply_rule_bias(
+        self,
+        probs: Tuple[float, float, float],
+        text: str
+    ) -> Tuple[float, float, float]:
+        """
+        规则只做轻微偏置，不主导判断
+        """
+        normal, ad, scam = probs
+
+        if self.SCAM_BIAS_PATTERN.search(text):
+            scam += 0.10
+
+        if self.NORMAL_BIAS_PATTERN.search(text):
+            normal += 0.10
+
+        total = normal + ad + scam
+        return normal / total, ad / total, scam / total
 
     def classify(self, text: str) -> Tuple[float, float, float]:
-        """综合分类方法"""
         if not text.strip():
-            return (0.34, 0.33, 0.33)
-        
-        # 各分析方法的结果
-        keyword_scores = self.keyword_analysis(text)
-        pattern_scores = self.pattern_analysis(text)
-        length_scores = self.length_analysis(text)
-        llm_scores = self.call_llm_simple_classification(text)
-        
-        # 加权平均
-        final_normal = (
-            keyword_scores[0] * self.rule_weights['keyword_match'] +
-            pattern_scores[0] * self.rule_weights['pattern_match'] +
-            length_scores[0] * self.rule_weights['length_analysis'] +
-            llm_scores[0] * self.rule_weights['llm_analysis']
-        )
-        
-        final_ad = (
-            keyword_scores[1] * self.rule_weights['keyword_match'] +
-            pattern_scores[1] * self.rule_weights['pattern_match'] +
-            length_scores[1] * self.rule_weights['length_analysis'] +
-            llm_scores[1] * self.rule_weights['llm_analysis']
-        )
-        
-        final_scam = (
-            keyword_scores[2] * self.rule_weights['keyword_match'] +
-            pattern_scores[2] * self.rule_weights['pattern_match'] +
-            length_scores[2] * self.rule_weights['length_analysis'] +
-            llm_scores[2] * self.rule_weights['llm_analysis']
-        )
-        
-        # 归一化
-        total = final_normal + final_ad + final_scam
-        if total > 0:
-            return (
-                final_normal / total,
-                final_ad / total,
-                final_scam / total
-            )
-        else:
-            return (0.34, 0.33, 0.33)
+            return 0.34, 0.33, 0.33
 
-# 初始化分类器
+        probs = self.call_llm_logits(text)
+        probs = self.apply_rule_bias(probs, text)
+
+        return probs
+
+
 classifier = EmailClassifier()
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """健康检查"""
+# ======================
+# 接口
+# ======================
+
+@app.route("/health", methods=["GET"])
+def health():
     try:
-        # 首先检查Ollama服务是否可达
-        tags_url = OLLAMA_API_URL.replace('/api/generate', '/api/tags')
+        tags_url = OLLAMA_API_URL.replace("/api/generate", "/api/tags")
         req = urllib_request.Request(tags_url)
-        with urllib_request.urlopen(req, timeout=5) as response:
-            tags_data = json.loads(response.read().decode("utf-8"))
-            models = tags_data.get('models', [])
-            model_names = [m.get('name', '') for m in models]
-            
-            # 检查所需模型是否可用
-            model_available = OLLAMA_MODEL in model_names
-            
-            if model_available:
-                return jsonify({
-                    'status': 'healthy', 
-                    'ollama': 'connected',
-                    'model_available': True,
-                    'available_models': model_names
-                })
-            else:
-                return jsonify({
-                    'status': 'degraded',
-                    'ollama': 'connected',
-                    'model_available': False,
-                    'required_model': OLLAMA_MODEL,
-                    'available_models': model_names,
-                    'warning': f'Required model {OLLAMA_MODEL} not found in available models'
-                })
-    except Exception as e:
-        logger.error(f"健康检查失败: {str(e)}")
+        with urllib_request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        models = [m.get("name", "") for m in data.get("models", [])]
+
         return jsonify({
-            'status': 'unhealthy',
-            'ollama': 'disconnected',
-            'error': str(e)
+            "status": "healthy",
+            "ollama": "connected",
+            "model_available": OLLAMA_MODEL in models,
+            "available_models": models
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
         }), 503
 
-@app.route('/v1/models/emotion_model:predict', methods=['POST'])
-def predict_emotion():
-    """邮件分类预测接口"""
-    try:
-        data = request.get_json()
-        if not data or 'instances' not in data:
-            return jsonify({'error': 'Invalid request format'}), 400
-            
-        instances = data.get('instances', [])
-        if not instances:
-            return jsonify({'predictions': []})
 
-        predictions = []
-        for instance in instances:
-            # 提取文本内容
-            token = instance.get('token', [])
-            text = " ".join(token) if isinstance(token, list) else str(token)
-            
-            # 使用混合分类器
-            normal_score, ad_score, scam_score = classifier.classify(text)
-            predictions.append([normal_score, ad_score, scam_score])
-            
-            logger.info(f"分类结果: '{text[:30]}...' -> 正常:{normal_score:.3f}, 广告:{ad_score:.3f}, 诈骗:{scam_score:.3f}")
-                
-        return jsonify({'predictions': predictions})
-        
-    except Exception as e:
-        logger.error(f"请求处理失败: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+@app.route("/v1/models/emotion_model:predict", methods=["POST"])
+def predict():
+    data = request.get_json()
+    if not data or "instances" not in data:
+        return jsonify({"error": "Invalid request format"}), 400
 
-@app.route('/classify', methods=['POST'])
+    predictions = []
+
+    for inst in data["instances"]:
+        token = inst.get("token", [])
+        text = " ".join(token) if isinstance(token, list) else str(token)
+
+        normal, ad, scam = classifier.classify(text)
+        predictions.append([normal, ad, scam])
+
+        logger.info(
+            f"预测: normal={normal:.3f}, ad={ad:.3f}, scam={scam:.3f}"
+        )
+
+    return jsonify({"predictions": predictions})
+
+
+@app.route("/classify", methods=["POST"])
 def classify_direct():
-    """直接分类接口，更简单的输入格式"""
-    try:
-        data = request.get_json()
-        if not data or 'text' not in data:
-            return jsonify({'error': 'Missing text field'}), 400
-            
-        text = data['text']
-        normal_score, ad_score, scam_score = classifier.classify(text)
-        
-        return jsonify({
-            'normal': normal_score,
-            'ad': ad_score,
-            'scam': scam_score,
-            'prediction': max(['normal', 'ad', 'scam'], 
-                            key=lambda x: [normal_score, ad_score, scam_score][['normal','ad','scam'].index(x)])
-        })
-        
-    except Exception as e:
-        logger.error(f"直接分类失败: {str(e)}")
-        return jsonify({'error': 'Classification failed'}), 500
+    data = request.get_json()
+    if not data or "text" not in data:
+        return jsonify({"error": "Missing text"}), 400
 
-@app.route('/', methods=['GET'])
-def index():
-    """服务信息"""
+    text = data["text"]
+    normal, ad, scam = classifier.classify(text)
+
+    label = max(
+        [("normal", normal), ("ad", ad), ("scam", scam)],
+        key=lambda x: x[1]
+    )[0]
+
     return jsonify({
-        'service': 'Enhanced Email Classification Service',
-        'version': '2.0.0',
-        'approach': 'Hybrid (Rules + LLM)',
-        'endpoints': {
-            'health': '/health',
-            'predict': '/v1/models/emotion_model:predict',
-            'classify': '/classify'
-        }
+        "normal": normal,
+        "ad": ad,
+        "scam": scam,
+        "prediction": label
     })
 
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "service": "Email Classification Service",
+        "version": "3.0.0",
+        "mode": "LLM logits (zero-shot)",
+        "model": OLLAMA_MODEL
+    })
+
+
 if __name__ == "__main__":
-    logger.info(f"启动增强版邮件分类服务，监听 {SERVER_HOST}:{SERVER_PORT}")
-    logger.info(f"使用混合分类方法：规则 + LLM")
+    logger.info(f"启动服务 {SERVER_HOST}:{SERVER_PORT}")
     logger.info(f"Ollama 模型: {OLLAMA_MODEL}")
-    
     app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False)
