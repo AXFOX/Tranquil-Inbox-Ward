@@ -49,7 +49,7 @@ class EmailClassifier:
     - 规则只做轻微 bias
     """
 
-    PROMPT_TEMPLATE = PROMPT_TEMPLATE = """你是一个邮件分类系统。
+    PROMPT_TEMPLATE = """你是一个邮件分类系统。
 
 请判断下面的邮件属于哪一类：
 A. 正常邮件
@@ -57,12 +57,6 @@ B. 广告邮件
 C. 诈骗邮件
 
 示例：
-邮件内容：会议时间调整为周三下午三点，请查收附件。
-答案：A
-
-邮件内容：项目进展已更新到文档，请大家查看。
-答案：A
-
 邮件内容：双十一限时优惠，点击链接立刻领取优惠券。
 答案：B
 
@@ -80,6 +74,12 @@ C. 诈骗邮件
 
 邮件内容：Your account has been compromised, please click the link to verify your information.
 答案：C
+
+邮件内容：会议时间调整为周三下午三点，请查收附件。
+答案：A
+
+邮件内容：项目进展已更新到文档，请大家查看。
+答案：A
 
 只输出一个大写字母，不要输出任何解释。
 
@@ -99,9 +99,7 @@ C. 诈骗邮件
 
     def _truncate(self, text: str) -> str:
         text = text.strip()
-        if len(text) > MAX_TEXT_LEN:
-            return text[:MAX_TEXT_LEN]
-        return text
+        return text[:MAX_TEXT_LEN] if len(text) > MAX_TEXT_LEN else text
 
     def _softmax(self, scores):
         max_v = max(scores)
@@ -113,20 +111,18 @@ C. 诈骗邮件
         """
         使用 Ollama 的 logprobs，直接取 A/B/C 的 logits
         """
-        prompt = self.PROMPT_TEMPLATE.format(
-            email=self._truncate(text)
-        )
+        prompt = self.PROMPT_TEMPLATE.format(email=self._truncate(text))
 
         payload = {
             "model": OLLAMA_MODEL,
-            "prompt": prompt,
+            "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "options": {
                 "temperature": 0,
                 "top_p": 1,
-                "num_predict": 1,
-                "logprobs": 5
-            }
+                "num_predict": 1
+            },
+            "logprobs": True
         }
 
         try:
@@ -139,22 +135,19 @@ C. 诈骗邮件
             with urllib_request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
-            logprobs = result.get("logprobs", {})
+            message = result.get("message", {})
+            logprobs = message.get("logprobs", {})
             tokens = logprobs.get("tokens", [])
             token_logprobs = logprobs.get("token_logprobs", [])
 
             scores = {"A": -20.0, "B": -20.0, "C": -20.0}
 
             for tok, lp in zip(tokens, token_logprobs):
-                if tok in scores:
-                    scores[tok] = lp
+                t = tok.strip().upper()
+                if t in scores:
+                    scores[t] = lp
 
-            probs = self._softmax([
-                scores["A"],  # normal
-                scores["B"],  # ad
-                scores["C"]   # scam
-            ])
-
+            probs = self._softmax([scores["A"], scores["B"], scores["C"]])
             return probs[0], probs[1], probs[2]
 
         except Exception as e:
@@ -186,9 +179,7 @@ C. 诈骗邮件
 
         probs = self.call_llm_logits(text)
         probs = self.apply_rule_bias(probs, text)
-
         return probs
-
 
 classifier = EmailClassifier()
 
@@ -199,7 +190,7 @@ classifier = EmailClassifier()
 @app.route("/health", methods=["GET"])
 def health():
     try:
-        tags_url = OLLAMA_API_URL.replace("/api/generate", "/api/tags")
+        tags_url = "http://127.0.0.1:11434/api/tags"
         req = urllib_request.Request(tags_url)
         with urllib_request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -235,9 +226,7 @@ def predict():
         normal, ad, scam = classifier.classify(text)
         predictions.append([normal, ad, scam])
 
-        logger.info(
-            f"预测: normal={normal:.3f}, ad={ad:.3f}, scam={scam:.3f}"
-        )
+        logger.info(f"预测: normal={normal:.3f}, ad={ad:.3f}, scam={scam:.3f}")
 
     return jsonify({"predictions": predictions})
 
@@ -251,10 +240,7 @@ def classify_direct():
     text = data["text"]
     normal, ad, scam = classifier.classify(text)
 
-    label = max(
-        [("normal", normal), ("ad", ad), ("scam", scam)],
-        key=lambda x: x[1]
-    )[0]
+    label = max([("normal", normal), ("ad", ad), ("scam", scam)], key=lambda x: x[1])[0]
 
     return jsonify({
         "normal": normal,
@@ -268,8 +254,8 @@ def classify_direct():
 def index():
     return jsonify({
         "service": "Email Classification Service",
-        "version": "3.0.0",
-        "mode": "LLM logits (zero-shot)",
+        "version": "3.1.0",
+        "mode": "LLM logits (few-shot)",
         "model": OLLAMA_MODEL
     })
 
