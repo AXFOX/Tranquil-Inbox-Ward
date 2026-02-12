@@ -26,7 +26,7 @@ logger = logging.getLogger("email_classifier")
 # ======================
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mollysama/rwkv-7-g1c:1.5b")
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/chat")
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/generate")
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8501"))
 
@@ -115,14 +115,11 @@ C. 诈骗邮件
 
         payload = {
             "model": OLLAMA_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
+            "prompt": prompt,
             "stream": False,
-            "options": {
-                "temperature": 0,
-                "top_p": 1,
-                "num_predict": 1
-            },
-            "logprobs": True
+            "temperature": 0,
+            "top_p": 1,
+            "num_predict": 1
         }
 
         try:
