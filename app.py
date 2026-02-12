@@ -109,7 +109,7 @@ C. 诈骗邮件
 
     def call_llm_logits(self, text: str) -> Tuple[float, float, float]:
         """
-        使用 Ollama 的 logprobs，直接取 A/B/C 的 logits
+        使用 Ollama /api/generate logprobs，直接取 A/B/C 的 logits
         """
         prompt = self.PROMPT_TEMPLATE.format(email=self._truncate(text))
 
@@ -117,9 +117,12 @@ C. 诈骗邮件
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
-            "temperature": 0,
-            "top_p": 1,
-            "num_predict": 1
+            "options": {
+                "temperature": 0,
+                "top_p": 1,
+                "num_predict": 1,
+                "logprobs": 5
+            }
         }
 
         try:
@@ -129,11 +132,11 @@ C. 诈骗邮件
                 headers={"Content-Type": "application/json"}
             )
 
-            with urllib_request.urlopen(req, timeout=30) as resp:
+            with urllib_request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
-            message = result.get("message", {})
-            logprobs = message.get("logprobs", {})
+            # /api/generate 返回 logprobs
+            logprobs = result.get("logprobs", {})
             tokens = logprobs.get("tokens", [])
             token_logprobs = logprobs.get("token_logprobs", [])
 
@@ -156,9 +159,6 @@ C. 诈骗邮件
         probs: Tuple[float, float, float],
         text: str
     ) -> Tuple[float, float, float]:
-        """
-        规则只做轻微偏置，不主导判断
-        """
         normal, ad, scam = probs
 
         if self.SCAM_BIAS_PATTERN.search(text):
@@ -251,8 +251,8 @@ def classify_direct():
 def index():
     return jsonify({
         "service": "Email Classification Service",
-        "version": "3.1.0",
-        "mode": "LLM logits (few-shot)",
+        "version": "3.1.1",
+        "mode": "LLM logits (few-shot, /api/generate)",
         "model": OLLAMA_MODEL
     })
 
