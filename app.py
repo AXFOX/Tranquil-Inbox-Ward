@@ -5,12 +5,15 @@ import os
 import logging
 import re
 import math
+import time
+import random
 from dotenv import load_dotenv
 from typing import Tuple
 
 # ======================
 # 环境 & 日志
 # ======================
+
 load_dotenv()
 
 logging.basicConfig(
@@ -23,6 +26,7 @@ logger = logging.getLogger("email_classifier")
 # ======================
 # 配置
 # ======================
+
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mollysama/rwkv-7-g1c:1.5b")
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/generate")
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
@@ -33,16 +37,18 @@ MAX_TEXT_LEN = 1500  # 防止 prompt 过长
 # ======================
 # Flask
 # ======================
+
 app = Flask(__name__)
 
 # ======================
 # 分类器
 # ======================
+
 class EmailClassifier:
     """
-    Ollama v0.12.11 zero-shot/few-shot 邮件分类器
-    - LLM logits 主判别
-    - 规则 bias 用于微调概率
+    零训练邮件分类器：
+    - LLM logits 作为主判别
+    - 规则只做轻微 bias
     """
 
     PROMPT_TEMPLATE = """你是一个邮件分类系统。
@@ -93,28 +99,36 @@ C. 诈骗邮件
         re.IGNORECASE
     )
 
-    def _truncate(self, text: str) -> str:
+    def _truncate_mixed(self, text: str) -> str:
+        """混合截断：保留前 800 + 尾部 400 字"""
         text = text.strip()
-        return text[:MAX_TEXT_LEN] if len(text) > MAX_TEXT_LEN else text
+        head_len = 800
+        tail_len = 400
+        if len(text) <= head_len + tail_len:
+            return text
+        return text[:head_len] + "\n\n...[truncated]...\n\n" + text[-tail_len:]
 
-    def _softmax(self, logits):
-        max_v = max(logits)
-        exps = [math.exp(l - max_v) for l in logits]
+    def _softmax(self, scores):
+        max_v = max(scores)
+        exps = [math.exp(s - max_v) for s in scores]
         total = sum(exps)
-        return [e / total for e in exps]
+        return [v / total for v in exps]
 
     def call_llm_logits(self, text: str) -> Tuple[float, float, float]:
         """
-        使用 Ollama /api/generate logprobs 获取 A/B/C 概率
+        稳健调用 Ollama /api/generate：
+        - 支持 logprobs / top_logprobs
+        - token 匹配 A/B/C
+        - 重试 + 指数退避
+        - fallback：response 文本解析
         """
-        prompt = self.PROMPT_TEMPLATE.format(email=self._truncate(text))
-
+        prompt = self.PROMPT_TEMPLATE.format(email=self._truncate_mixed(text))
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
             "logprobs": True,
-            "top_logprobs": 3,
+            "top_logprobs": 5,
             "options": {
                 "temperature": 0,
                 "top_p": 1,
@@ -122,59 +136,93 @@ C. 诈骗邮件
             }
         }
 
-        try:
-            req = urllib_request.Request(
-                OLLAMA_API_URL,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
+        max_retries = 3
+        backoff = 0.5
+        last_err = None
 
-            with urllib_request.urlopen(req, timeout=120) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
+        for attempt in range(max_retries):
+            try:
+                req = urllib_request.Request(
+                    OLLAMA_API_URL,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib_request.urlopen(req, timeout=120) as resp:
+                    raw = resp.read()
+                result = json.loads(raw.decode("utf-8"))
 
-            # 从 logprobs 中提取 token
-            scores = {"A": -20.0, "B": -20.0, "C": -20.0}
+                scores = {"A": -20.0, "B": -20.0, "C": -20.0}
+                lp_obj = result.get("logprobs")
 
-            for entry in result.get("logprobs", []):
-                tok = entry.get("token", "").strip().upper()
-                lp = entry.get("logprob", -20.0)
-                if tok in scores:
-                    scores[tok] = lp
+                if isinstance(lp_obj, list):
+                    for entry in lp_obj:
+                        tok = str(entry.get("token", "")).strip()
+                        lp = entry.get("logprob")
+                        if lp is not None:
+                            t_up = re.sub(r'[^A-Za-z0-9]', '', tok).upper()
+                            if t_up in ("A", "B", "C"):
+                                scores[t_up] = max(scores[t_up], float(lp))
+                        for t in entry.get("top_logprobs", []):
+                            tkn = str(t.get("token", "")).strip()
+                            tlp = t.get("logprob")
+                            if tlp is None:
+                                continue
+                            t_up = re.sub(r'[^A-Za-z0-9]', '', tkn).upper()
+                            if t_up in ("A", "B", "C"):
+                                scores[t_up] = max(scores[t_up], float(tlp))
 
-                # top_logprobs 叠加权重
-                for t in entry.get("top_logprobs", []):
-                    tkn = t.get("token", "").strip().upper()
-                    t_lp = t.get("logprob", -20.0)
-                    if tkn in scores:
-                        scores[tkn] = max(scores[tkn], t_lp)
+                elif isinstance(lp_obj, dict):
+                    tokens = lp_obj.get("tokens", [])
+                    token_logprobs = lp_obj.get("token_logprobs", [])
+                    for tok, lp in zip(tokens, token_logprobs):
+                        if lp is None:
+                            continue
+                        t_up = re.sub(r'[^A-Za-z0-9]', '', str(tok)).upper()
+                        if t_up in ("A", "B", "C"):
+                            scores[t_up] = max(scores[t_up], float(lp))
+                else:
+                    resp_text = result.get("response", "")
+                    m = re.search(r"\b([ABC])\b", resp_text)
+                    if m:
+                        letter = m.group(1)
+                        scores[letter] = 0.0
 
-            probs = self._softmax([scores["A"], scores["B"], scores["C"]])
-            return probs[0], probs[1], probs[2]
+                normal, ad, scam = self._softmax([scores["A"], scores["B"], scores["C"]])
+                return normal, ad, scam
 
-        except Exception as e:
-            logger.error(f"LLM logits 调用失败: {e}")
-            return 0.33, 0.33, 0.34
+            except urllib_request.HTTPError as he:
+                last_err = he
+                code = getattr(he, "code", None)
+                if code and 500 <= code < 600:
+                    wait = backoff * (2 ** attempt) + random.random() * 0.1
+                    logger.warning(f"Ollama HTTP {code}, retrying in {wait:.2f}s")
+                    time.sleep(wait)
+                    continue
+                else:
+                    logger.error(f"Ollama HTTP error {he}")
+                    break
+            except Exception as e:
+                last_err = e
+                wait = backoff * (2 ** attempt) + random.random() * 0.1
+                logger.warning(f"Ollama call failed attempt {attempt+1}/{max_retries}: {e}, retrying in {wait:.2f}s")
+                time.sleep(wait)
+                continue
 
-    def apply_rule_bias(
-        self,
-        probs: Tuple[float, float, float],
-        text: str
-    ) -> Tuple[float, float, float]:
+        logger.error(f"LLM logits 调用最终失败: {last_err}")
+        return 0.33, 0.33, 0.34
+
+    def apply_rule_bias(self, probs: Tuple[float, float, float], text: str) -> Tuple[float, float, float]:
         normal, ad, scam = probs
-
         if self.SCAM_BIAS_PATTERN.search(text):
             scam += 0.10
-
         if self.NORMAL_BIAS_PATTERN.search(text):
             normal += 0.10
-
         total = normal + ad + scam
         return normal / total, ad / total, scam / total
 
     def classify(self, text: str) -> Tuple[float, float, float]:
         if not text.strip():
             return 0.34, 0.33, 0.33
-
         probs = self.call_llm_logits(text)
         probs = self.apply_rule_bias(probs, text)
         return probs
@@ -184,6 +232,7 @@ classifier = EmailClassifier()
 # ======================
 # 接口
 # ======================
+
 @app.route("/health", methods=["GET"])
 def health():
     try:
@@ -191,71 +240,48 @@ def health():
         req = urllib_request.Request(tags_url)
         with urllib_request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-
         models = [m.get("name", "") for m in data.get("models", [])]
-
         return jsonify({
             "status": "healthy",
             "ollama": "connected",
             "model_available": OLLAMA_MODEL in models,
             "available_models": models
         })
-
     except Exception as e:
-        return jsonify({
-            "status": "unhealthy",
-            "error": str(e)
-        }), 503
-
+        return jsonify({"status": "unhealthy", "error": str(e)}), 503
 
 @app.route("/v1/models/emotion_model:predict", methods=["POST"])
 def predict():
     data = request.get_json()
     if not data or "instances" not in data:
         return jsonify({"error": "Invalid request format"}), 400
-
     predictions = []
-
     for inst in data["instances"]:
         token = inst.get("token", [])
         text = " ".join(token) if isinstance(token, list) else str(token)
-
         normal, ad, scam = classifier.classify(text)
         predictions.append([normal, ad, scam])
-
         logger.info(f"预测: normal={normal:.3f}, ad={ad:.3f}, scam={scam:.3f}")
-
     return jsonify({"predictions": predictions})
-
 
 @app.route("/classify", methods=["POST"])
 def classify_direct():
     data = request.get_json()
     if not data or "text" not in data:
         return jsonify({"error": "Missing text"}), 400
-
     text = data["text"]
     normal, ad, scam = classifier.classify(text)
-
     label = max([("normal", normal), ("ad", ad), ("scam", scam)], key=lambda x: x[1])[0]
-
-    return jsonify({
-        "normal": normal,
-        "ad": ad,
-        "scam": scam,
-        "prediction": label
-    })
-
+    return jsonify({"normal": normal, "ad": ad, "scam": scam, "prediction": label})
 
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({
         "service": "Email Classification Service",
         "version": "3.2.0",
-        "mode": "LLM logits (few-shot, /api/generate, logprobs)",
+        "mode": "LLM logits (few-shot, /api/generate)",
         "model": OLLAMA_MODEL
     })
-
 
 if __name__ == "__main__":
     logger.info(f"启动服务 {SERVER_HOST}:{SERVER_PORT}")
