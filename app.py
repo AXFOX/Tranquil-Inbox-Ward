@@ -11,7 +11,6 @@ from typing import Tuple
 # ======================
 # 环境 & 日志
 # ======================
-
 load_dotenv()
 
 logging.basicConfig(
@@ -24,7 +23,6 @@ logger = logging.getLogger("email_classifier")
 # ======================
 # 配置
 # ======================
-
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mollysama/rwkv-7-g1c:1.5b")
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/generate")
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
@@ -35,18 +33,16 @@ MAX_TEXT_LEN = 1500  # 防止 prompt 过长
 # ======================
 # Flask
 # ======================
-
 app = Flask(__name__)
 
 # ======================
 # 分类器
 # ======================
-
 class EmailClassifier:
     """
-    零训练邮件分类器：
-    - LLM logits 作为主判别
-    - 规则只做轻微 bias
+    Ollama v0.12.11 zero-shot/few-shot 邮件分类器
+    - LLM logits 主判别
+    - 规则 bias 用于微调概率
     """
 
     PROMPT_TEMPLATE = """你是一个邮件分类系统。
@@ -101,15 +97,15 @@ C. 诈骗邮件
         text = text.strip()
         return text[:MAX_TEXT_LEN] if len(text) > MAX_TEXT_LEN else text
 
-    def _softmax(self, scores):
-        max_v = max(scores)
-        exps = [math.exp(s - max_v) for s in scores]
+    def _softmax(self, logits):
+        max_v = max(logits)
+        exps = [math.exp(l - max_v) for l in logits]
         total = sum(exps)
-        return [v / total for v in exps]
+        return [e / total for e in exps]
 
     def call_llm_logits(self, text: str) -> Tuple[float, float, float]:
         """
-        使用 Ollama /api/generate logprobs，直接取 A/B/C 的 logits
+        使用 Ollama /api/generate logprobs 获取 A/B/C 概率
         """
         prompt = self.PROMPT_TEMPLATE.format(email=self._truncate(text))
 
@@ -117,11 +113,12 @@ C. 诈骗邮件
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
+            "logprobs": True,
+            "top_logprobs": 3,
             "options": {
                 "temperature": 0,
                 "top_p": 1,
-                "num_predict": 1,
-                "logprobs": 5
+                "num_predict": 1
             }
         }
 
@@ -135,17 +132,21 @@ C. 诈骗邮件
             with urllib_request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
-            # /api/generate 返回 logprobs
-            logprobs = result.get("logprobs", {})
-            tokens = logprobs.get("tokens", [])
-            token_logprobs = logprobs.get("token_logprobs", [])
-
+            # 从 logprobs 中提取 token
             scores = {"A": -20.0, "B": -20.0, "C": -20.0}
 
-            for tok, lp in zip(tokens, token_logprobs):
-                t = tok.strip().upper()
-                if t in scores:
-                    scores[t] = lp
+            for entry in result.get("logprobs", []):
+                tok = entry.get("token", "").strip().upper()
+                lp = entry.get("logprob", -20.0)
+                if tok in scores:
+                    scores[tok] = lp
+
+                # top_logprobs 叠加权重
+                for t in entry.get("top_logprobs", []):
+                    tkn = t.get("token", "").strip().upper()
+                    t_lp = t.get("logprob", -20.0)
+                    if tkn in scores:
+                        scores[tkn] = max(scores[tkn], t_lp)
 
             probs = self._softmax([scores["A"], scores["B"], scores["C"]])
             return probs[0], probs[1], probs[2]
@@ -183,7 +184,6 @@ classifier = EmailClassifier()
 # ======================
 # 接口
 # ======================
-
 @app.route("/health", methods=["GET"])
 def health():
     try:
@@ -251,8 +251,8 @@ def classify_direct():
 def index():
     return jsonify({
         "service": "Email Classification Service",
-        "version": "3.1.1",
-        "mode": "LLM logits (few-shot, /api/generate)",
+        "version": "3.2.0",
+        "mode": "LLM logits (few-shot, /api/generate, logprobs)",
         "model": OLLAMA_MODEL
     })
 
