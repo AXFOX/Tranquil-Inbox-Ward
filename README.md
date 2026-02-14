@@ -8,7 +8,7 @@
 https://github.com/AXFOX/Tranquil-Inbox-Ward
 
 ## 说明（部署与依赖）
-- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：mollysama/rwkv-7-g1c:1.5b
+- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：phi3:mini
 ## Ollama（本地模型服务）
 - 请先参考 Ollama 官方文档安装 Ollama 并运行服务。
 - 下载/拉取模型（示例）：
