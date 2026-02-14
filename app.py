@@ -23,7 +23,7 @@ class TFServingRequest(BaseModel):
 app = FastAPI(
     title="Tranquil Inbox Ward",
     description="Spam classification service based on Ollama logprobs",
-    version="1.0.0",
+    version="0.0.2",
 )
 
 
