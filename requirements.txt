@@ -1,7 +1,6 @@
 # Requirements for Tranquil-Inbox-Ward
 # Generated from imports in app.py
-gunicorn>=20.0.4
-python-dotenv>=1.0.0
+python-dotenv
 fastapi
 uvicorn
 requests
