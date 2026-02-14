@@ -10,7 +10,7 @@ Environment="PATH={INSTALL_DIR}/{VENV_NAME}/bin:/usr/local/sbin:/usr/local/bin:/
 
 # 使用虚拟环境中的Python
 # 方案A：完全使用journal日志（推荐）
-ExecStart={INSTALL_DIR}/{VENV_NAME}/bin/gunicorn -w 4 -b 0.0.0.0:8501 app:app
+ExecStart={INSTALL_DIR}/{VENV_NAME}/bin/python app.py
 
 # 方案B：保留文件日志（如果调试时需要文件日志）
 # ExecStart={INSTALL_DIR}/{VENV_NAME}/bin/gunicorn -w 4 -b 0.0.0.0:8501 --access-logfile /var/log/tranquil-inbox-ward/access.log --error-logfile /var/log/tranquil-inbox-ward/error.log app:app

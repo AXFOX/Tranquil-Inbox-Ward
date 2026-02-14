@@ -59,7 +59,7 @@ if ! systemctl is-active --quiet ollama 2>/dev/null; then
     echo "  - 安装: curl -fsSL https://ollama.ai/install.sh | sh"
     echo "  - 启动: systemctl start ollama"
     echo "  - 启用: systemctl enable ollama"
-    echo "  - 拉取模型: ollama pull mollysama/rwkv-7-g1a:0.4b"
+    echo "  - 拉取模型: ollama pull phi3:mini"
 fi
 
 echo "7. 重新加载systemd配置..."
@@ -91,6 +91,6 @@ echo "日志目录: $LOG_DIR"
 echo ""
 echo "请确保:"
 echo "1. Ollama服务正在运行 (systemctl status ollama)"
-echo "2. 模型已下载 (ollama pull mollysama/rwkv-7-g1a:0.4b)"
+echo "2. 模型已下载 (ollama pull phi3:mini)"
 echo "3. 检查应用日志: journalctl -u $APP_NAME -f"
 echo "========================================"

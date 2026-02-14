@@ -34,8 +34,6 @@ export SERVER_PORT="8501"
 # 开发或调试
 python app.py
 
-# 生产（示例使用 gunicorn）
-gunicorn -w 4 -b 0.0.0.0:8501 app:app
 ```
 ## Systemd 部署（生产环境推荐）
 
@@ -105,12 +103,14 @@ API URL: http://localhost:8501/v1/models/emotion_model:predict
 ----------------------------------------
 {
   "predictions": [
-    {
-      "label": "positive",
-      "score": 0.95
-    }
+    [
+      0.9860662453108814,
+      0.00696687734455927,
+      0.00696687734455927
+    ]
   ]
 }
+
 ```
 
 ## 其它
