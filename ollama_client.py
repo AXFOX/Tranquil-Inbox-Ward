@@ -1,4 +1,3 @@
-# ollama_client.py
 from typing import TypedDict, List
 import requests
 from config import OLLAMA_API_URL, OLLAMA_MODEL, CALL_TIMEOUT
@@ -14,20 +13,22 @@ class OllamaResponse(TypedDict, total=False):
     prompt_eval_count: int
     prompt_eval_duration: int
     eval_count: int
-    logprobs: list  # 新增，用于存放 token logprobs
-    top_logprobs: list  # 新增，用于存放每个 token 的 top logprobs
+    logprobs: List[dict]  # 每个 token 的 logprob 信息
 
 def ollama_generate_logprobs(prompt: str) -> OllamaResponse:
+    """
+    调用 Ollama API，返回完整 JSON，包括 logprobs
+    """
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
-        "stream": False,          # 注意 Python 布尔值首字母大写
-        "logprobs": True,         # 顶级字段，确保返回 logprobs
-        "top_logprobs": 3,        # 可选，返回每个 token 前 3 个概率
+        "stream": False,
+        "logprobs": True,       # 获取每个 token 的 logprob
+        "top_logprobs": 3,      # Ollama 返回每个 token 的前 3 个候选 logprobs
         "options": {
             "temperature": 0,
             "top_p": 1,
-            "num_predict": 1       # 必须 >=1 才会生成 token 和 logprobs
+            "num_predict": 1
         }
     }
 
@@ -37,4 +38,15 @@ def ollama_generate_logprobs(prompt: str) -> OllamaResponse:
         timeout=CALL_TIMEOUT
     )
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+
+    # 确保 logprobs 字段存在
+    if "logprobs" not in data or not isinstance(data["logprobs"], list):
+        data["logprobs"] = []
+
+    # 保证每个 token 的 top_logprobs 字段存在
+    for token_info in data["logprobs"]:
+        if "top_logprobs" not in token_info or not isinstance(token_info["top_logprobs"], list):
+            token_info["top_logprobs"] = []
+
+    return data

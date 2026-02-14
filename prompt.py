@@ -1,6 +1,6 @@
 # prompt.py
 
-SPAM_CLASSIFY_PROMPT = """你是一个邮件分类系统。
+SPAM_CLASSIFY_PROMPT = """/你是一个邮件分类系统。
 
 请判断下面的邮件属于哪一类：
 A. 正常邮件
