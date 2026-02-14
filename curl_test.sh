@@ -22,3 +22,6 @@ curl http://localhost:11434/api/generate -H "Content-Type: application/json" -d 
   }
 }'
 
+curl -X POST http://127.0.0.1:8501/predict \
+  -H "Content-Type: application/json" \
+  -d '{"text":"(&#39;Email delivered from&#39;, &#39;198.23.254.212&#39;, &#39;with port&#39;, 25)"}'
