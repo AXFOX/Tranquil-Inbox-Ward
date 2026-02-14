@@ -3,8 +3,7 @@
 from config import MAX_TEXT_LEN
 from prompt import SPAM_CLASSIFY_PROMPT
 from ollama_client import ollama_generate_logprobs
-#from classifier import extract_probs_from_logprobs
-from classifier import hard_classify_from_response
+from classifier import classify_from_ollama  # 使用软分类优先
 
 
 def _truncate_text(text: str) -> str:
@@ -26,13 +25,8 @@ def check_spam(text: str) -> dict:
 
     print("OLLAMA RAW RESPONSE:", ollama_resp)  # 调试用，正式环境可以删除
 
-    # 安全取 response，显式类型收敛
-    resp = ollama_resp.get("response")
-    if not isinstance(resp, str):
-        resp = ""
-
-    #probs = extract_probs_from_logprobs(ollama_resp)
-    probs = hard_classify_from_response(resp)
+    # 使用 classify_from_ollama 做软分类，硬分类兜底
+    probs = classify_from_ollama(ollama_resp)
 
     return {
         "predictions": [
