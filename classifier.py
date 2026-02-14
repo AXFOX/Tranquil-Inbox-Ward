@@ -14,30 +14,32 @@ def softmax(xs):
 
 def extract_probs_from_logprobs(ollama_json: dict):
     """
-    返回 [normal, ad, scam] 概率
+    从 Ollama logprobs 返回 [normal, ad, scam] 概率
     """
     try:
-        top_logprobs = ollama_json["logprobs"][0]["top_logprobs"][0]
+        # 取第一个 token 的 top_logprobs 列表
+        top_logprobs_list = ollama_json["logprobs"][0]["top_logprobs"]
+        # 转成字典方便查找
+        top_logprobs_dict = {item["token"]: item["logprob"] for item in top_logprobs_list}
     except (KeyError, IndexError, TypeError):
         return [1/3, 1/3, 1/3]
 
     logits = []
     for label in LABELS:
         # 如果 top_logprobs 没有这个 token，就给一个很小的 logit
-        logits.append(top_logprobs.get(label, -100))
+        logits.append(top_logprobs_dict.get(label, -100))
 
     return softmax(logits)
 
 
-
 def classify_from_ollama(ollama_json: dict):
     """
-    优先使用 logprobs 做软分类，如果不存在 logprobs 或非法输出，退回 hard 分类
+    优先使用 logprobs 做软分类，如果不存在 logprobs 或非法输出，退回硬分类
     """
-    # 先尝试软分类
+    # 尝试软分类
     probs = extract_probs_from_logprobs(ollama_json)
 
-    # 如果返回的都是相等概率（说明 logprobs 异常），使用硬分类兜底
+    # 如果返回的都是均等概率，说明 logprobs 异常，退回硬分类
     if probs == [1/3, 1/3, 1/3]:
         resp = ollama_json.get("response", "").strip().upper()
         if resp == "A":
