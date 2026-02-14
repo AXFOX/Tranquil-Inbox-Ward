@@ -13,7 +13,7 @@ https://github.com/AXFOX/Tranquil-Inbox-Ward
 - 请先参考 Ollama 官方文档安装 Ollama 并运行服务。
 - 下载/拉取模型（示例）：
 ```bash
-ollama pull mollysama/rwkv-7-g1c:1.5b
+ollama pull phi3:mini
 ```
 - 启动 Ollama 服务（示例）：
 ```bash
@@ -23,7 +23,7 @@ ollama serve
 
 ## 环境变量（可选）
 ```bash
-export OLLAMA_MODEL="mollysama/rwkv-7-g1c:1.5b"
+export OLLAMA_MODEL="phi3:mini"
 export OLLAMA_API_URL="http://127.0.0.1:11434/api/generate"
 export SERVER_HOST="0.0.0.0"
 export SERVER_PORT="8501"
