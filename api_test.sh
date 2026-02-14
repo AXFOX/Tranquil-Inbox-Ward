@@ -6,9 +6,8 @@
 #   ./api_test.sh -f filename.txt
 #   ./api_test.sh -i (交互模式)
 
-#API_URL="http://localhost:8501/v1/models/emotion_model:predict"
-API_URL="https://tranquil-inbox-ward.linuxuser.site/v1/models/emotion_model:predict"
-# 颜色定义
+API_URL="http://localhost:8501/v1/models/emotion_model:predict"
+#API_URL="https://tranquil-inbox-ward.linuxuser.site/predict
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
