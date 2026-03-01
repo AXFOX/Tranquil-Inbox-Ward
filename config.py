@@ -1,16 +1,11 @@
 import os
 from dotenv import load_dotenv
-
 load_dotenv()
-
 
 # ===== Ollama =====
 OLLAMA_MODEL = os.getenv(
     "OLLAMA_MODEL",
-    #"mollysama/rwkv-7-g1d:1.5b"
-    #"rwkv-7-g1c-nt"
-    #"qwen3:0.6b"
-    "phi3:mini"
+    "mollysama/rwkv-7-g1d:1.5b-nothink"
 )
 
 OLLAMA_API_URL = os.getenv(

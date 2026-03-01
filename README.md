@@ -1,29 +1,38 @@
 # Tranquil-Inbox-Ward
 
-静域信驿（Tranquil Inbox Ward），专为 pmail 设计的关键词增强型垃圾邮件分类服务（规则 + LLM 混合）。
+静域信驿（Tranquil Inbox Ward），专为 pmail 设计的AI垃圾邮件分类服务。
 过滤效果图：
 <img width="1917" height="875" alt="image" src="https://github.com/user-attachments/assets/ffed6475-cc85-426c-9eb4-8f5fa52c9310" />
 
 ## 仓库
 https://github.com/AXFOX/Tranquil-Inbox-Ward
 
-## 说明（部署与依赖）
-- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：phi3:mini
+## 说明（部署与依赖须知）
+- 本项目使用本地 Ollama 模型服务进行 LLM 推理，默认模型：mollysama/rwkv-7-g1d:1.5b-nothink 
+- 对于部署在Nas/HomeServer等具备核显且支持Vulkan的环境，推荐开启Ollama的Vulkan推理以获得预期的最佳体验。
+- 如有足够的内存尽可能通过如下方案保持模型驻留内存，减少不必要的读取操作缓解非MLC SSD磨损。
+### 安装Ollama 后
+```bash
+sudo systemctl edit ollama.service 
+
+Environment="OLLAMA_VULKAN=1"       #开启Vulkan推理
+Environment="OLLAMA_KEEP_ALIVE=-1"  # 驻留内存
+```
 ## Ollama（本地模型服务）
 - 请先参考 Ollama 官方文档安装 Ollama 并运行服务。
 - 下载/拉取模型（示例）：
 ```bash
-ollama pull phi3:mini
+ollama pull mollysama/rwkv-7-g1d:1.5b-nothink
 ```
 - 启动 Ollama 服务（示例）：
 ```bash
 ollama serve
 ```
-- 默认应用连接地址（可通过.env或环境变量覆盖）：`http://127.0.0.1:11434/api/generate`
-
+- 默认应用连接地址（可通过~~.env或~~环境变量覆盖）：`http://127.0.0.1:11434/api/generate`
+- 项目的正式版将永久弃用项目路径下的.env文件改用config.py以降低复杂度提升可靠性。
 ## 环境变量（可选）
 ```bash
-export OLLAMA_MODEL="phi3:mini"
+export OLLAMA_MODEL="mollysama/rwkv-7-g1d:1.5b-nothink"
 export OLLAMA_API_URL="http://127.0.0.1:11434/api/generate"
 export SERVER_HOST="0.0.0.0"
 export SERVER_PORT="8501"
@@ -40,8 +49,8 @@ python app.py
 ### 1. 准备工作
 确保已安装：
 - Python 3.8+
-- Ollama（用于LLM推理）
-- 已拉取模型：`mollysama/rwkv-7-g1c:1.5b `
+- Ollama（用于RWKV模型推理）
+- 已拉取模型：`mollysama/rwkv-7-g1d:1.5b-nothink `
 ### 2. 克隆仓库
 ```bash
 git clone https://github.com/AXFOX/Tranquil-Inbox-Ward.git
@@ -88,7 +97,7 @@ sudo journalctl -u tranquil-inbox-ward -f
 4. 如需修改服务配置，编辑服务文件后运行：`sudo systemctl daemon-reload && sudo systemctl restart tranquil-inbox-ward`
 
 ## API 测试
-项目提供了 `api_test.sh` 脚本，用于方便地测试API。
+项目提供了 `api_test.sh` 脚本，用于上线前测试API可用性。
 用法: 
 ```
 ./api_test.sh "测试内容"
@@ -118,3 +127,7 @@ API URL: http://localhost:8501/v1/models/emotion_model:predict
 - 已提供systemd部署脚本和模板文件
 - 如需额外的容器化部署示例，可在仓库中补充 `Dockerfile`
 - =-= So，欢迎PR
+## 致谢
+感谢 MollySophia 姐姐提供的RWKV小参数模型和Ollama下的RWKV推理实现，该系列模型实测在不经过针对性预训练的情况下通过简单的prompt也能达到良好的分类效果（甚至不用开思考）。
+感谢DeepSeek作为必要的信息检索帮助我选择合适的实现方案。
+感谢Pmail和伟大的开源与自由软件社区开发者们！

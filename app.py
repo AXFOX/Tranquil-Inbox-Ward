@@ -52,18 +52,6 @@ def health():
     return {"status": "ok"}
 
 
-# ===== 简单接口 =====
-@app.post("/predict")
-def predict(req: SpamCheckRequest):
-    text = req.text.strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Empty text")
-
-    try:
-        return check_spam(text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Spam check failed: {e}")
-
 
 if __name__ == "__main__":
     import uvicorn
