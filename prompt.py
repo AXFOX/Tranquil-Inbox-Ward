@@ -14,7 +14,7 @@ C. 诈骗邮件
 答案：B
 邮件内容：198.23.254.212 t_Smtp.LocalIP
 答案：B
-邮件内容：smtp.linuxuser.site:25:0:127.0.0.1:1080:socks5:25
+邮件内容：smtp.linuxuser.site:25:0:127.0.0.1:1080:socks5:25W
 答案：B
 邮件内容：gsudmswgebl iokijcsmg ykvhiywocmydsmfahsovovdq
 答案：B
