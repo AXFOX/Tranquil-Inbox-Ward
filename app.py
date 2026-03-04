@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -5,6 +6,9 @@ from typing import List
 from spam_check import check_spam
 from config import SERVER_HOST, SERVER_PORT
 
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ===== 请求模型（必须在路由之前） =====
 class SpamCheckRequest(BaseModel):
@@ -27,6 +31,12 @@ app = FastAPI(
 )
 
 
+# ===== 健康检查 =====
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # ===== 兼容 TF Serving 接口 =====
 @app.post("/v1/models/emotion_model:predict")
 def predict_tf_serving(req: TFServingRequest):
@@ -39,20 +49,18 @@ def predict_tf_serving(req: TFServingRequest):
         raise HTTPException(status_code=400, detail="Empty token")
 
     text = instance.token[0].strip()
+    logger.info(f"Processing email: {text[:50]}...")
 
     try:
-        return check_spam(text)
+        result = check_spam(text)
+        logger.info(f"Prediction: {result['predictions'][0]}")
+        return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Spam check failed: {e}")
-
-
-# ===== 健康检查 =====
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
+        logger.error(f"Spam check failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Spam check failed: {str(e)}")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host=SERVER_HOST, port=SERVER_PORT)

@@ -3,7 +3,7 @@
 from config import MAX_TEXT_LEN
 from prompt import SPAM_CLASSIFY_PROMPT
 from ollama_client import ollama_generate_logprobs
-from classifier import classify_from_ollama  # 使用软分类优先
+from classifier import classify_from_ollama
 
 def _truncate_text(text: str) -> str:
     """超过 MAX_TEXT_LEN 截断"""
@@ -13,7 +13,7 @@ def _truncate_text(text: str) -> str:
 
 def check_spam(text: str) -> dict:
     """
-    核心函数：输入邮件文本，返回 spam_block 兼容结构
+    核心函数：输入邮件文本，返回分类结果
     输出格式：
     {
         "predictions": [
@@ -23,18 +23,12 @@ def check_spam(text: str) -> dict:
     """
     text = text.strip()
     text = _truncate_text(text)
-
+    
     prompt = SPAM_CLASSIFY_PROMPT.format(email=text)
-
     ollama_resp = ollama_generate_logprobs(prompt)
-
-    #print("OLLAMA RAW RESPONSE:", ollama_resp)  # 调试用
-
-    # 使用 classify_from_ollama 做软分类，硬分类兜底
+    
     probs = classify_from_ollama(ollama_resp)
-
+    
     return {
-        "predictions": [
-            probs  # [normal, ad, scam]
-        ]
+        "predictions": [probs]  # [normal, ad, scam]
     }

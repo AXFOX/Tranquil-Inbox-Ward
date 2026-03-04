@@ -1,6 +1,6 @@
 # classifier.py
 import math
-from typing import List
+from typing import List, Optional
 from ollama_client import OllamaResponse
 
 
@@ -13,44 +13,50 @@ def softmax(logits: List[float]) -> List[float]:
     s = sum(exps)
     return [e / s for e in exps]
 
-def extract_probs_from_logprobs(ollama_json: OllamaResponse) -> List[float]:
+def extract_probs_from_logprobs(ollama_json: OllamaResponse) -> Optional[List[float]]:
     """
     将 Ollama logprobs 转换为 [normal, ad, scam] 概率
-    对缺失 token 采用 -5 处理，而不是 -100
+    返回 None 表示 logprobs 不完整，需要硬分类兜底
     """
     try:
-        # 安全访问 logprobs
         logprobs = ollama_json.get("logprobs", [])
         if not logprobs:
-            return [1/3, 1/3, 1/3]
+            return None
         
-        # 取第一个 token 的 top_logprobs
         top_logprobs_list = logprobs[0].get("top_logprobs", [])
+        if not top_logprobs_list:
+            return None
+            
         top_logprobs_dict = {item["token"]: item["logprob"] for item in top_logprobs_list}
+        
+        # 检查 A/B/C 都存在
+        if not all(label in top_logprobs_dict for label in LABELS):
+            return None
+            
+        logits = [top_logprobs_dict[label] for label in LABELS]
+        return softmax(logits)
+        
     except (KeyError, IndexError, TypeError):
-        return [1/3, 1/3, 1/3]
-
-    # 对 A/B/C token 做 softmax
-    logits = []
-    for label in LABELS:
-        logits.append(top_logprobs_dict.get(label, -5))  # 缺失 token 设为 -5
-
-    return softmax(logits)
+        return None
 
 def classify_from_ollama(ollama_json: OllamaResponse) -> List[float]:
     """
-    优先软分类，异常或 logprobs 不完整时用硬分类兜底
+    优先软分类，logprobs 不完整时用硬分类兜底
     """
     probs = extract_probs_from_logprobs(ollama_json)
-
-    # 如果返回均等概率（-兜底）或异常
-    if probs == [1/3, 1/3, 1/3]:
-        resp = ollama_json.get("response", "").strip().upper()
-        if resp == "A":
-            return [1.0, 0.0, 0.0]
-        elif resp == "B":
-            return [0.0, 1.0, 0.0]
-        elif resp == "C":
-            return [0.0, 0.0, 1.0]
-
-    return probs
+    
+    # 软分类成功
+    if probs is not None:
+        return probs
+    
+    # 硬分类兜底：从响应文本提取答案
+    resp = ollama_json.get("response", "").strip().upper()
+    if resp == "A":
+        return [1.0, 0.0, 0.0]
+    elif resp == "B":
+        return [0.0, 1.0, 0.0]
+    elif resp == "C":
+        return [0.0, 0.0, 1.0]
+    
+    # 两种方法都失败，返回均等概率
+    return [1/3, 1/3, 1/3]
