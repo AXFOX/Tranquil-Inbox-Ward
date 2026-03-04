@@ -1,23 +1,31 @@
 # classifier.py
 import math
+from typing import List
+from ollama_client import OllamaResponse
+
 
 LABELS = ["A", "B", "C"]  # 顺序固定: A=正常, B=广告, C=诈骗
 
-def softmax(logits):
+def softmax(logits: List[float]) -> List[float]:
     """标准 softmax"""
     m = max(logits)
     exps = [math.exp(x - m) for x in logits]
     s = sum(exps)
     return [e / s for e in exps]
 
-def extract_probs_from_logprobs(ollama_json: dict):
+def extract_probs_from_logprobs(ollama_json: OllamaResponse) -> List[float]:
     """
     将 Ollama logprobs 转换为 [normal, ad, scam] 概率
     对缺失 token 采用 -5 处理，而不是 -100
     """
     try:
+        # 安全访问 logprobs
+        logprobs = ollama_json.get("logprobs", [])
+        if not logprobs:
+            return [1/3, 1/3, 1/3]
+        
         # 取第一个 token 的 top_logprobs
-        top_logprobs_list = ollama_json["logprobs"][0]["top_logprobs"]
+        top_logprobs_list = logprobs[0].get("top_logprobs", [])
         top_logprobs_dict = {item["token"]: item["logprob"] for item in top_logprobs_list}
     except (KeyError, IndexError, TypeError):
         return [1/3, 1/3, 1/3]
@@ -29,7 +37,7 @@ def extract_probs_from_logprobs(ollama_json: dict):
 
     return softmax(logits)
 
-def classify_from_ollama(ollama_json: dict):
+def classify_from_ollama(ollama_json: OllamaResponse) -> List[float]:
     """
     优先软分类，异常或 logprobs 不完整时用硬分类兜底
     """
