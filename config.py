@@ -34,5 +34,5 @@ SERVER_PORT = int(os.getenv(
 # ===== Spam classify =====
 MAX_TEXT_LEN = int(os.getenv(
     "MAX_TEXT_LEN",
-    "1200"
+    "2000"
 ))

@@ -28,7 +28,7 @@ def check_spam(text: str) -> dict:
 
     ollama_resp = ollama_generate_logprobs(prompt)
 
-    print("OLLAMA RAW RESPONSE:", ollama_resp)  # 调试用
+    #print("OLLAMA RAW RESPONSE:", ollama_resp)  # 调试用
 
     # 使用 classify_from_ollama 做软分类，硬分类兜底
     probs = classify_from_ollama(ollama_resp)
