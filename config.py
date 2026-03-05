@@ -8,7 +8,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mollysama/rwkv-7-g1d:1.5b-nothink")
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://127.0.0.1:11434/api/generate")
 
 # ===== Server =====
-SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_HOST = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8501"))
 
 # ===== Spam classify =====

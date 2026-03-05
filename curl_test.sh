@@ -17,7 +17,7 @@ curl http://localhost:11434/api/generate -d '{
 
 echo ""
 echo "=== 测试服务 API (TF Serving 兼容) ==="
-curl -X POST http://127.0.0.1:8501/v1/models/emotion_model:predict \
+curl -X POST https://tranquil-inbox-ward.linuxuser.site/v1/models/emotion_model:predict\
   -H "Content-Type: application/json" \
   -d '{
     "instances": [
